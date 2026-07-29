@@ -1,0 +1,86 @@
+name: Backup deployment
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch to deploy"
+        required: true
+        default: "main"
+
+jobs:
+  Build:
+    name: Setup Chatbot Service
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'push' && github.ref_name || github.event.inputs.branch }}
+
+      - name: Configure SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Login to Vultr Container Registry
+        run: |
+          docker login -u ${{ secrets.VULTR_REGISTRY_USERNAME }} -p ${{ secrets.VULTR_REGISTRY_PASSWORD }} ${{ secrets.VULTR_REGISTRY_URL }}
+
+      - name: Build and push Docker image
+        run: |
+          export DOCKER_BUILDKIT=1
+          REGISTRY_PATH="sgp.vultrcr.com/qlink01/fsai_bot"
+          docker build -t $REGISTRY_PATH:latest .
+          docker push $REGISTRY_PATH:latest
+
+      - name: Deploy to DigitalOcean Droplet
+        uses: appleboy/ssh-action@master
+        with:
+          host: "206.189.138.222" 
+          username: root 
+          password: ${{ secrets.DIGITALOCEAN_PASSWORD }} 
+          script: |
+            # Login to Vultr Container Registry
+            docker login -u ${{ secrets.VULTR_REGISTRY_USERNAME }} -p ${{ secrets.VULTR_REGISTRY_PASSWORD }} ${{ secrets.VULTR_REGISTRY_URL }}
+
+            # Pull the latest image
+            docker pull sgp.vultrcr.com/qlink01/fsai_bot:latest
+
+            # Stop and remove existing container if it exists
+            docker stop qlink || true
+            docker rm qlink || true
+
+            # Run new container
+            docker run -d \
+              --name qlink \
+              -p 8000:8000 \
+              -e PYTHONUNBUFFERED=1 \
+              -e PYTHONDONTWRITEBYTECODE=1 \
+              -e OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }} \
+              -e MONGO_URI=${{ secrets.MONGO_URI }} \
+              -e ENV_MODE=${{ secrets.ENV_MODE }} \
+              -e GUPSHUP_APP_ID=${{ secrets.GUPSHUP_APP_ID }} \
+              -e GUPSHUP_TOKEN=${{ secrets.GUPSHUP_TOKEN }} \
+              -e GUPSHUP_APP_NAME=${{ secrets.GUPSHUP_APP_NAME }} \
+              -e GUPSHUP_API_KEY=${{ secrets.GUPSHUP_API_KEY }} \
+              -e PINECONE_API=${{ secrets.PINECONE_API }} \
+              -e PINECONE_NAMESPACE=${{ secrets.PINECONE_NAMESPACE }} \
+              -e WEBHOOK_API=${{ secrets.WEBHOOK_API }} \
+              -e LOGIN_USERNAME=${{ secrets.LOGIN_USERNAME }} \
+              -e LOGIN_PASS=${{ secrets.LOGIN_PASS }} \
+              sgp.vultrcr.com/qlink01/fsai_bot
+
+      - name: Cleanup Old Images
+        uses: appleboy/ssh-action@master
+        with:
+          host: "206.189.138.222"   # Use the IPv4 address of your  server here
+          username: root  # Your server username
+          password: ${{ secrets.DIGITALOCEAN_PASSWORD }}   # Your server password
+          script: |
+            # Remove dangling images to free up space
+            docker image prune -f
+
