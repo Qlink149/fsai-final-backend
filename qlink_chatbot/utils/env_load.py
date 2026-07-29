@@ -14,9 +14,19 @@ pinecone_api = os.environ.get("PINECONE_API")
 pinecone_namespace = os.environ.get("PINECONE_NAMESPACE")
 webhook_api = os.environ.get("WEBHOOK_API")
 
+def _normalize_private_key(raw_key: str) -> str:
+    """Normalize a PEM private key regardless of how it was pasted into env vars."""
+    key = raw_key.strip()
+    if len(key) >= 2 and key[0] == key[-1] and key[0] in ("'", '"'):
+        key = key[1:-1]
+    if "\\n" in key and "\n" not in key:
+        key = key.replace("\\n", "\n")
+    return key.strip() + "\n"
+
+
 google_private_key_id = os.environ.get("GOOGLE_PRIVATE_KEY_ID")
 google_project_id = os.environ.get("GOOGLE_PROJECT_ID")
-google_private_key = os.environ.get("GOOGLE_PRIVATE_KEY", "").replace("\\n", "\n")
+google_private_key = _normalize_private_key(os.environ.get("GOOGLE_PRIVATE_KEY", ""))
 google_client_email = os.environ.get("GOOGLE_CLIENT_EMAIL")
 google_client_id = os.environ.get("GOOGLE_CLIENT_ID")
 google_client_x509_cert_url = os.environ.get("GOOGLE_CLIENT_X509_CERT_URL")
